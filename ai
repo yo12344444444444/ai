@@ -1,0 +1,103 @@
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing import image
+
+# Paths to .npy and image folders
+npy_folder_path = 'output_npys'
+img_folder_path = 'img'
+
+# List to store all image tensors and corresponding labels
+image_tensors = []
+labels = []
+
+# Process .npy files
+for file_name in os.listdir(npy_folder_path):
+    if file_name.lower().endswith('.npy'):
+        file_path = os.path.join(npy_folder_path, file_name)
+        try:
+            # Load .npy file into NumPy array
+            image_array = np.load(file_path)
+
+            # Ensure the shape is correct and add a channel dimension if necessary
+            if image_array.ndim == 2:  # If it's just (844, 941)
+                image_array = np.expand_dims(image_array, axis=-1)  # Add channel dimension
+
+            # Resize to ensure all images are consistent in size
+            image_array = np.resize(image_array, (844, 941, 1))
+
+            # Normalize the image
+            image_array = image_array / 255.0
+
+            # Append the image and label
+            image_tensors.append(image_array)
+            labels.append(1)  # Label 1 for .npy files
+        except Exception as e:
+            print(f"Could not process {file_name}: {e}")
+
+# Process images in the 'img' folder
+for file_name in os.listdir(img_folder_path):
+    if file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+        file_path = os.path.join(img_folder_path, file_name)
+        try:
+            # Load the image with Keras' image loader
+            img = image.load_img(file_path, target_size=(844, 941), color_mode='grayscale')
+            img_array = image.img_to_array(img)
+
+            # Ensure the shape is correct and add a channel dimension if necessary
+            if img_array.ndim == 2:  # If it's just (844, 941)
+                img_array = np.expand_dims(img_array, axis=-1)  # Add channel dimension
+
+            # Normalize the image
+            img_array = img_array / 255.0
+
+            # Append the image and label (0 for test images)
+            image_tensors.append(img_array)
+            labels.append(0)
+        except Exception as e:
+            print(f"Could not process {file_name}: {e}")
+
+# Check image shapes (for debugging purposes)
+for img in image_tensors:
+    print(img.shape)
+
+# Convert lists to TensorFlow tensors
+image_tensors = np.array(image_tensors)
+
+# Ensure consistent shape for all images before creating the tensor
+if image_tensors.ndim == 4:  # If images have a channel dimension
+    image_tensors = np.squeeze(image_tensors, axis=-1)  # Remove extra channel dimension if it exists
+
+# Convert labels to NumPy array
+labels = np.array(labels)
+
+# Create the model
+model = models.Sequential([
+    layers.Flatten(input_shape=(844, 941, 1)),
+    layers.Dense(420, activation='relu'),  # First hidden layer
+    layers.Dropout(0.2),
+    layers.Dense(666, activation='relu'),  # New hidden layer with 666 units
+    layers.Dropout(0.2),
+    layers.Dense(2, activation='softmax')  # Output layer (2 classes)
+])
+
+# Compile the model
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Shuffle the dataset and create the dataset pipeline
+buffer_size = len(image_tensors)  # Set buffer size equal to the dataset length for thorough shuffling
+dataset = tf.data.Dataset.from_tensor_slices((image_tensors, labels))
+dataset = dataset.shuffle(buffer_size).batch(32)  # Shuffle and batch the dataset
+
+# Check if a GPU is available
+if tf.config.list_physical_devices('GPU'):
+    with tf.device('/GPU:0'):  # Ensure TensorFlow uses the first GPU
+        model.fit(dataset, epochs=12)
+else:
+    model.fit(dataset, epochs=12)  # Fallback to CPU if no GPU
+
+# Save the trained model
+model.save("2212")
